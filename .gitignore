@@ -1,0 +1,28 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.env
+.venv/
+venv/
+ENV/
+*.pptx
+!assets/*.pptx
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+
+# Generated artifacts & scratch / 生成产物与临时文件
+output/
+work/
+.omc/
+.claude/
+
+# Runtime databases & local state / 运行时数据库与本地状态
+app_data/
+*.db
+*.sqlite
