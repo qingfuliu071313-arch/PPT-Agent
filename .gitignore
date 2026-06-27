@@ -16,6 +16,9 @@ ENV/
 .pytest_cache/
 .mypy_cache/
 
+# macOS / 系统文件
+.DS_Store
+
 # Generated artifacts & scratch / 生成产物与临时文件
 output/
 work/
