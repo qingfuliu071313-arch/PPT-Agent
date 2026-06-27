@@ -53,6 +53,13 @@ class ChartData(BaseModel):
     title: str = ""
     x_axis_title: str = ""
     y_axis_title: str = ""
+    # Rendering engine: "native" = editable PowerPoint chart (column/bar/line/pie);
+    # "matplotlib" = render a DesignDNA-styled PNG (scientific figures). Scientific
+    # chart_types (scatter/regression/errorbar/box/violin/heatmap/hist/area) imply
+    # the matplotlib engine automatically.
+    engine: str = "native"
+    row_labels: list[str] = Field(default_factory=list)  # heatmap row labels
+    colormap: str = ""  # heatmap colormap override (else derived from DesignDNA)
 
 
 class UserRequirement(BaseModel):

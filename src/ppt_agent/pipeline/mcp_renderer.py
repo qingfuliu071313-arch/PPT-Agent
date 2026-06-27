@@ -13,7 +13,8 @@ from pathlib import Path
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-from ppt_agent.models import DesignDNA, Presentation, SlideContent, SlideLayout
+from ppt_agent.models import DesignDNA, ImageSpec, Presentation, SlideContent, SlideLayout
+from ppt_agent.utils import charts
 from ppt_agent.utils.fonts import font_for_text, get_font_pair
 
 
@@ -80,15 +81,19 @@ class MCPRenderer:
         path = Path(output_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         asyncio.run(self._render_async(presentation, str(path.resolve())))
-        self._apply_slide_size(path)
+        self._apply_post_process(path, presentation)
         return str(path)
 
-    def _apply_slide_size(self, path: Path) -> None:
-        """Set the saved deck's page size to match render geometry.
+    def _apply_post_process(self, path: Path, presentation: Presentation) -> None:
+        """Fix up the saved deck in a single python-pptx pass.
 
-        The MCP server creates 4:3 decks and exposes no sizing tool, while
-        all geometry here targets self.W x self.H. Shape positions are
-        absolute EMU, so resizing the page after save is lossless.
+        1. Set page size to match render geometry. The MCP server creates 4:3
+           decks and exposes no sizing tool, while all geometry here targets
+           self.W x self.H; shape positions are absolute EMU, so resizing the
+           page after save is lossless.
+        2. Inject speaker notes. The MCP server's manage_text "notes" target
+           degrades to a stray on-canvas textbox, so notes are written here
+           straight into each slide's notes placeholder instead.
         """
         from pptx import Presentation as PptxPresentation
         from pptx.util import Inches
@@ -96,6 +101,12 @@ class MCPRenderer:
         pptx = PptxPresentation(str(path))
         pptx.slide_width = Inches(self.W)
         pptx.slide_height = Inches(self.H)
+
+        # Slides are built sequentially, so pptx order matches presentation order.
+        for slide, sc in zip(pptx.slides, presentation.slides):
+            if sc.notes:
+                slide.notes_slide.notes_text_frame.text = sc.notes
+
         pptx.save(str(path))
 
     # ── async core ─────────────────────────────────────────────
@@ -197,14 +208,9 @@ class MCPRenderer:
         except Exception:
             pass
 
-        if sc.notes:
-            try:
-                await self._call(s, "manage_text", {
-                    "slide_index": idx, "operation": "add",
-                    "target": "notes", "text": sc.notes,
-                })
-            except Exception:
-                pass
+        # Speaker notes are injected post-render via python-pptx
+        # (_apply_post_process); the MCP server's manage_text "notes" target
+        # silently degrades to a stray on-canvas textbox, so it is not used.
 
         return idx
 
@@ -402,6 +408,14 @@ class MCPRenderer:
             return left + (w - fw) / 2, top + (h - fh) / 2, fw, fh
         except Exception:
             return left, top, w, h
+
+    def _image_dir(self) -> str:
+        """Directory for renderer-generated assets (matplotlib charts, etc.)."""
+        import tempfile
+
+        d = Path(tempfile.gettempdir()) / "ppt_agent_images"
+        d.mkdir(parents=True, exist_ok=True)
+        return str(d)
 
     async def _insert_image(self, s, idx, img_spec, left, top, w, h) -> None:
         """Insert an image file or a placeholder frame."""
@@ -645,8 +659,17 @@ class MCPRenderer:
         chart_h = self.BODY_H - 0.3
         await self._frame(s, idx, self.M_LEFT, self.BODY_Y, chart_w, chart_h)
 
-        if sc.chart_data and sc.chart_data.categories:
-            cd = sc.chart_data
+        cd = sc.chart_data
+        if cd and charts.needs_matplotlib(cd):
+            # Scientific figure → DesignDNA-styled PNG, inserted image-first.
+            png_path = Path(self._image_dir()) / f"chart_{sc.index}.png"
+            png = charts.render_chart(cd, self.dna, png_path,
+                                      width_in=chart_w - 0.2, height_in=chart_h - 0.2)
+            if png:
+                spec = ImageSpec(description=cd.title or "figure", local_path=png)
+                await self._insert_image(s, idx, spec, self.M_LEFT + 0.1,
+                                         self.BODY_Y + 0.1, chart_w - 0.2, chart_h - 0.2)
+        elif cd and cd.categories:
             series_names = [sr.get("name", f"Series {i+1}") for i, sr in enumerate(cd.series)]
             series_values = [sr.get("values", []) for sr in cd.series]
             await self._call(s, "add_chart", {
