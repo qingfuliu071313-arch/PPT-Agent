@@ -22,6 +22,7 @@ ENV/
 # Generated artifacts & scratch / 生成产物与临时文件
 output/
 work/
+design_system_build/
 .omc/
 .claude/
 
