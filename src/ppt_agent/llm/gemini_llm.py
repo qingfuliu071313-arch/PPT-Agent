@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 from google import genai
-from ppt_agent.llm.base import BaseLLM
+from ppt_agent.llm.base import BaseLLM, LLMResponseError
 
 
 class GeminiLLM(BaseLLM):
 
     def __init__(self, api_key: str = "", model: str = "gemini-2.5-flash"):
-        self.client = genai.Client(api_key=api_key or None)
+        self.client = genai.Client(
+            api_key=api_key or None,
+            http_options={"timeout": 120_000},  # milliseconds
+        )
         self.model = model
 
     def generate(self, prompt: str, system: str = "") -> str:
@@ -21,9 +24,7 @@ class GeminiLLM(BaseLLM):
             contents=prompt,
             config=config,
         )
-        return response.text
-
-    def generate_json(self, prompt: str, system: str = "") -> dict:
-        full_prompt = prompt + "\n\nRespond with valid JSON only, no markdown fences."
-        text = self.generate(full_prompt, system)
-        return self._extract_json(text)
+        text = response.text  # None when safety-blocked or finished empty
+        if not text:
+            raise LLMResponseError("Gemini returned an empty response (possibly safety-blocked)")
+        return text

@@ -19,7 +19,6 @@ def classify_slide(
     text_boxes = [s for s in shapes if s["type"] in ("TEXT_BOX", "AUTO_SHAPE") and s.get("has_text")]
     charts = [s for s in shapes if s["type"] == "CHART"]
     tables = [s for s in shapes if s["type"] == "TABLE"]
-    groups = [s for s in shapes if s["type"] == "GROUP"]
 
     total_image_area = sum(s["width"] * s["height"] for s in pictures)
     image_ratio = total_image_area / slide_area if slide_area else 0

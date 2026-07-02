@@ -173,7 +173,14 @@ def render(json_path: str, output: str, theme: str, dna: str):
         safe_topic = presentation.requirement.topic.replace(" ", "_")[:30]
         output = str(Path("output") / f"{safe_topic}_{date.today().isoformat()}.pptx")
 
-    design_dna = DesignDNA.load_json(dna) if dna else presentation.design_dna
+    # DNA priority: --dna flag > design_dna embedded in the JSON > --theme preset
+    if dna:
+        design_dna = DesignDNA.load_json(dna)
+    elif presentation.design_dna is not None:
+        design_dna = presentation.design_dna
+    else:
+        from ppt_agent.themes import design_dna_from_theme
+        design_dna = design_dna_from_theme(theme)
 
     console.print(Panel("渲染PPT", style="blue"))
     renderer = MCPRenderer(design_dna=design_dna)

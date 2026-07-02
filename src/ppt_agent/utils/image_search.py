@@ -19,7 +19,21 @@ _IMAGE_DIR = Path(tempfile.gettempdir()) / "ppt_agent_images"
 
 _UA = "PPT-Agent/0.1 (academic presentation generator; contact: local)"
 _MIN_WIDTH = 500
+_MIN_BYTES = 1000  # smaller files are error pages or truncated downloads
 _OK_EXTENSIONS = (".png", ".jpg", ".jpeg")
+
+# Per-run degradation counters so the pipeline can report (instead of silently
+# rendering a deck full of placeholders when the network or curl is broken).
+_stats = {"search_errors": 0, "curl_missing": False}
+
+
+def reset_search_stats() -> None:
+    _stats["search_errors"] = 0
+    _stats["curl_missing"] = False
+
+
+def get_search_stats() -> dict:
+    return dict(_stats)
 
 
 # Generic words that hurt Wikimedia full-text recall when present in a query.
@@ -71,6 +85,7 @@ def search_image_urls(query: str, count: int = 6) -> list[str]:
             try:
                 urls.extend(u for u in backend(variant, count - len(urls)) if u not in urls)
             except Exception:
+                _stats["search_errors"] += 1
                 continue
         if len(urls) >= count:
             break
@@ -144,21 +159,31 @@ def download_image(url: str, filename: str = "") -> str | None:
 
     dest = _IMAGE_DIR / filename
 
-    if dest.exists() and dest.stat().st_size > 0:
-        return str(dest)
+    # Cache hits must pass the same size gate as fresh downloads — a run
+    # killed mid-download can leave a truncated file behind.
+    if dest.exists():
+        if dest.stat().st_size > _MIN_BYTES:
+            return str(dest)
+        dest.unlink()
 
+    # Download to a temp name and rename on success so the cache never
+    # contains partial files.
+    tmp = dest.parent / (dest.name + ".part")
     try:
         result = subprocess.run(
-            ["curl", "-sL", "-o", str(dest), "--max-time", "15", url],
+            ["curl", "-sL", "-o", str(tmp), "--max-time", "15", url],
             capture_output=True, timeout=20,
         )
-        if result.returncode == 0 and dest.exists() and dest.stat().st_size > 1000:
+        if result.returncode == 0 and tmp.exists() and tmp.stat().st_size > _MIN_BYTES:
+            tmp.rename(dest)
             return str(dest)
-    except (subprocess.TimeoutExpired, FileNotFoundError):
+    except subprocess.TimeoutExpired:
         pass
-
-    if dest.exists():
-        dest.unlink()
+    except FileNotFoundError:
+        _stats["curl_missing"] = True
+    finally:
+        if tmp.exists():
+            tmp.unlink()
     return None
 
 

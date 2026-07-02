@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from openai import OpenAI
-from ppt_agent.llm.base import BaseLLM
+from ppt_agent.llm.base import BaseLLM, LLMResponseError
 
 
 class DeepseekLLM(BaseLLM):
@@ -13,9 +13,17 @@ class DeepseekLLM(BaseLLM):
         self.client = OpenAI(
             api_key=api_key,
             base_url="https://api.deepseek.com/v1",
+            timeout=120.0,
         )
 
     def generate(self, prompt: str, system: str = "") -> str:
+        return self._chat(prompt, system)
+
+    def _generate_for_json(self, prompt: str, system: str) -> str:
+        # DeepSeek's OpenAI-compatible JSON mode guarantees syntactically valid JSON
+        return self._chat(prompt, system, response_format={"type": "json_object"})
+
+    def _chat(self, prompt: str, system: str, **extra) -> str:
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
@@ -25,10 +33,9 @@ class DeepseekLLM(BaseLLM):
             model=self.model,
             messages=messages,
             max_tokens=8192,
+            **extra,
         )
-        return response.choices[0].message.content
-
-    def generate_json(self, prompt: str, system: str = "") -> dict:
-        full_prompt = prompt + "\n\nRespond with valid JSON only, no markdown fences."
-        text = self.generate(full_prompt, system)
-        return self._extract_json(text)
+        content = response.choices[0].message.content
+        if not content:
+            raise LLMResponseError("DeepSeek returned an empty response")
+        return content

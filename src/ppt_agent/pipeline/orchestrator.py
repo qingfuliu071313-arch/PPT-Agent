@@ -48,7 +48,8 @@ class Orchestrator:
         elif design_dna:
             self.dna = design_dna
         else:
-            self.dna = DesignDNA()
+            from ppt_agent.themes import design_dna_from_theme
+            self.dna = design_dna_from_theme(theme)
 
         self.renderer = MCPRenderer(design_dna=self.dna)
 
@@ -80,25 +81,47 @@ class Orchestrator:
         console.print(f"  场景: {requirement.scene.value}")
         console.print(f"  时长: {requirement.duration_minutes} 分钟")
 
-        console.print(Panel("Stage 2/8: 模板DNA", style="blue"))
+        return self._run_pipeline(requirement, output_path, author, stage_offset=1)
+
+    def run_from_requirement(
+        self,
+        requirement: UserRequirement,
+        output_path: str = "",
+        author: str = "",
+    ) -> str:
+        return self._run_pipeline(requirement, output_path, author, stage_offset=0)
+
+    def _run_pipeline(
+        self,
+        requirement: UserRequirement,
+        output_path: str,
+        author: str,
+        stage_offset: int,
+    ) -> str:
+        total_stages = stage_offset + 7
+
+        def stage(n: int) -> str:
+            return f"Stage {stage_offset + n}/{total_stages}"
+
+        console.print(Panel(f"{stage(1)}: 模板DNA", style="blue"))
         console.print(f"  主色: #{self.dna.primary_color}")
         console.print(f"  字体: {self.dna.font_primary}")
         console.print(f"  图片占比: {self.dna.image_slide_percentage:.0%}")
 
-        console.print(Panel("Stage 3/8: 生成大纲", style="blue"))
+        console.print(Panel(f"{stage(2)}: 生成大纲", style="blue"))
         outline = self.outliner.generate(requirement)
         console.print(f"  标题: {outline.title}")
         console.print(f"  页数: {outline.total_slides}")
         for s in outline.slides:
             console.print(f"    [{s.index}] {s.title} ({s.layout.value})")
 
-        console.print(Panel("Stage 4/8: 生成内容", style="blue"))
+        console.print(Panel(f"{stage(3)}: 生成内容", style="blue"))
         slides = self.content_gen.generate(requirement, outline)
         console.print(f"  已生成 {len(slides)} 页内容")
         img_count = sum(len(s.images) for s in slides)
         console.print(f"  图片规划: {img_count} 张")
 
-        console.print(Panel("Stage 5/8: 获取图片", style="cyan"))
+        console.print(Panel(f"{stage(4)}: 获取图片", style="cyan"))
         slides = self.image_sourcer.source_all(slides)
         sourced = sum(1 for s in slides for img in s.images if img.local_path)
         console.print(f"  已获取: {sourced}/{img_count} 张图片")
@@ -115,7 +138,7 @@ class Orchestrator:
             date=date.today().isoformat(),
         )
 
-        console.print(Panel("Stage 6/8: 内容校验", style="yellow"))
+        console.print(Panel(f"{stage(5)}: 内容校验", style="yellow"))
         validator = ContentValidator()
         issues = validator.validate_and_fix(presentation)
         if issues:
@@ -125,7 +148,7 @@ class Orchestrator:
         else:
             console.print("  ✓ 所有内容校验通过")
 
-        console.print(Panel("Stage 7/8: 渲染PPT", style="blue"))
+        console.print(Panel(f"{stage(6)}: 渲染PPT", style="blue"))
 
         if not output_path:
             safe_topic = requirement.topic.replace(" ", "_")[:30]
@@ -146,7 +169,9 @@ class Orchestrator:
         else:
             console.print("  ✓ 质量检查通过")
 
-        result_path = self._visual_qa_stage(presentation, result_path, stage_label="8/8")
+        result_path = self._visual_qa_stage(
+            presentation, result_path, stage_label=f"{stage_offset + 7}/{total_stages}"
+        )
 
         console.print(Panel(f"完成！文件已保存到: {result_path}", style="green"))
         return result_path
@@ -177,47 +202,3 @@ class Orchestrator:
         except Exception as e:
             console.print(f"  [yellow]视觉QA跳过: {e}[/yellow]")
         return result_path
-
-    def run_from_requirement(
-        self,
-        requirement: UserRequirement,
-        output_path: str = "",
-        author: str = "",
-    ) -> str:
-        console.print(Panel("Stage 1/7: 模板DNA", style="blue"))
-        console.print(f"  主色: #{self.dna.primary_color}")
-
-        console.print(Panel("Stage 2/7: 生成大纲", style="blue"))
-        outline = self.outliner.generate(requirement)
-
-        console.print(Panel("Stage 3/7: 生成内容", style="blue"))
-        slides = self.content_gen.generate(requirement, outline)
-
-        console.print(Panel("Stage 4/7: 获取图片", style="cyan"))
-        slides = self.image_sourcer.source_all(slides)
-
-        style = get_style_config(requirement.scene)
-
-        presentation = Presentation(
-            requirement=requirement,
-            outline=outline,
-            slides=slides,
-            style=style,
-            design_dna=self.dna,
-            author=author,
-            date=date.today().isoformat(),
-        )
-
-        console.print(Panel("Stage 5/7: 内容校验", style="yellow"))
-        validator = ContentValidator()
-        validator.validate_and_fix(presentation)
-
-        console.print(Panel("Stage 6/7: 渲染PPT", style="blue"))
-
-        if not output_path:
-            safe_topic = requirement.topic.replace(" ", "_")[:30]
-            output_dir = Path(self.config.pipeline.output_dir)
-            output_path = str(output_dir / f"{safe_topic}_{date.today().isoformat()}.pptx")
-
-        result_path = self.renderer.render(presentation, output_path)
-        return self._visual_qa_stage(presentation, result_path, stage_label="7/7")

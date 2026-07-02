@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from ppt_agent.models import Presentation, SlideLayout
 from ppt_agent.utils.preview import pptx_to_pngs
@@ -45,36 +45,29 @@ def analyze_page_ink(png_path: str | Path) -> dict:
     run of near-blank rows as a fraction of page height (excluding the top
     header zone and bottom footer zone).
     """
+    import numpy as np
     from PIL import Image
 
     with Image.open(png_path) as im:
-        gray = im.convert("L")
-        w, h = gray.size
-        px = gray.load()
+        gray = np.asarray(im.convert("L"))
 
-        ink_rows = []
-        ink_total = 0
-        for y in range(h):
-            row_ink = 0
-            for x in range(0, w, 2):  # sample every 2nd pixel
-                if px[x, y] < 230:  # darker than near-white background
-                    row_ink += 1
-            ink_rows.append(row_ink / (w / 2))
-            ink_total += row_ink
+    h, w = gray.shape
+    ink = gray[:, ::2] < 230  # sample every 2nd pixel; darker than near-white bg
+    ink_rows = ink.sum(axis=1) / (w / 2)
+    coverage = float(ink.sum() / (w / 2 * h))
 
-        coverage = ink_total / (w / 2 * h)
-
-        # Largest blank band between 18% (below header) and 93% (above footer).
-        y0, y1 = int(h * 0.18), int(h * 0.93)
-        max_run = 0
-        run = 0
-        for y in range(y0, y1):
-            if ink_rows[y] < 0.01:
-                run += 1
-                max_run = max(max_run, run)
-            else:
-                run = 0
-        max_blank_band = max_run / h
+    # Largest blank band between 18% (below header) and 93% (above footer).
+    y0, y1 = int(h * 0.18), int(h * 0.93)
+    blank = ink_rows[y0:y1] < 0.01
+    max_run = 0
+    run = 0
+    for is_blank in blank:
+        if is_blank:
+            run += 1
+            max_run = max(max_run, run)
+        else:
+            run = 0
+    max_blank_band = max_run / h
 
     return {"coverage": coverage, "max_blank_band": max_blank_band}
 

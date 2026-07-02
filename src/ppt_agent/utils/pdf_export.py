@@ -85,7 +85,7 @@ def _export_libreoffice(pptx_path: str, pdf_path: str) -> str | None:
     for cmd in ["soffice", "/Applications/LibreOffice.app/Contents/MacOS/soffice",
                 "libreoffice"]:
         try:
-            result = subprocess.run(
+            subprocess.run(
                 [cmd, "--headless", "--convert-to", "pdf",
                  "--outdir", output_dir, pptx_path],
                 capture_output=True, text=True, timeout=60,

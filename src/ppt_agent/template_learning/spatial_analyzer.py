@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections import Counter
 from statistics import median
 
-from pptx.util import Emu
 
 
 def detect_header_bar(

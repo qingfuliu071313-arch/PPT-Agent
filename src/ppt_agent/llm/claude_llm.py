@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import anthropic
-from ppt_agent.llm.base import BaseLLM
+from ppt_agent.llm.base import BaseLLM, LLMResponseError
 
 
 class ClaudeLLM(BaseLLM):
 
     def __init__(self, api_key: str = "", model: str = "claude-sonnet-4-20250514"):
         self.model = model
-        self.client = anthropic.Anthropic(api_key=api_key or None)
+        self.client = anthropic.Anthropic(api_key=api_key or None, timeout=120.0)
 
     def generate(self, prompt: str, system: str = "") -> str:
         kwargs: dict = {
@@ -21,12 +21,10 @@ class ClaudeLLM(BaseLLM):
         if system:
             kwargs["system"] = system
         response = self.client.messages.create(**kwargs)
-        return response.content[0].text
-
-    def generate_json(self, prompt: str, system: str = "") -> dict:
-        full_prompt = prompt + "\n\nRespond with valid JSON only, no markdown fences."
-        text = self.generate(full_prompt, system)
-        return self._extract_json(text)
+        parts = [b.text for b in response.content if getattr(b, "text", None)]
+        if not parts:
+            raise LLMResponseError("Claude returned no text content")
+        return "".join(parts)
 
     def supports_vision(self) -> bool:
         return True

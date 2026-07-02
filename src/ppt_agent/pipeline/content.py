@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from ppt_agent.llm.base import BaseLLM
+from rich.console import Console
+
+from ppt_agent.llm.base import BaseLLM, LLMResponseError
 from ppt_agent.models import (
     ChartData,
     ImageSpec,
@@ -12,6 +14,8 @@ from ppt_agent.models import (
     SlideLayout,
     UserRequirement,
 )
+
+console = Console()
 
 SYSTEM_PROMPT = """你是一个专业的学术演示文稿内容撰写专家。
 你的核心理念是"图文并重"：每页以图片为主体，文字做信息饱满的注解。
@@ -149,7 +153,15 @@ class ContentGenerator:
                 annotations=", ".join(slide_outline.annotations) if slide_outline.annotations else "无预设注解",
             )
 
-            data = self.llm.generate_json(prompt, system=SYSTEM_PROMPT)
+            try:
+                data = self.llm.generate_json(prompt, system=SYSTEM_PROMPT)
+            except LLMResponseError as e:
+                # Degrade to the outline plan instead of discarding all prior slides.
+                console.print(
+                    f"  [yellow]第 {slide_outline.index} 页内容生成失败（{e}），"
+                    f"回退到大纲内容[/yellow]"
+                )
+                data = {}
 
             try:
                 layout = SlideLayout(data.get("layout", slide_outline.layout.value))
